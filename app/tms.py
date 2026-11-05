@@ -1,4 +1,4 @@
-"""Client for the legacy TMS (TCP, line protocol). See tms_protocol.md.
+"""Client for the legacy TMS (TCP, line protocol). See docs/tms_protocol.md.
 
 Kept intentionally simple for now: one connection per request, read until
 END/ERR, a short timeout, and a few retries for read-only commands.

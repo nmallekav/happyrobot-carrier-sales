@@ -2,7 +2,7 @@
 
 ## Instructions for Claude
 
-- **Follow [`steps.md`](./steps.md) as the build plan.** Work through it step by step. Use it to decide what to work on next, and check items off (`- [x]`) when they are done.
+- **Follow [`docs/steps.md`](./docs/steps.md) as the build plan.** Work through it step by step. Use it to decide what to work on next, and check items off (`- [x]`) when they are done.
 - This file holds the project context and requirements. If `steps.md` and this file ever disagree, the **requirements in this file win**.
 - Ask before making any architectural decision that conflicts with the hard requirements below.
 
@@ -79,8 +79,8 @@ The goal is to automate the first leg of an inbound carrier call with a HappyRob
 
 ### Legacy TMS notes
 
-- **Protocol reference: [`tms_protocol.md`](./tms_protocol.md).** Read it before working on the TMS adapter.
-- **Fault handling: see the [Fault Behavior](./tms_protocol.md#fault-behavior) and [Adapter Implementation Notes](./tms_protocol.md#adapter-implementation-notes) sections of `tms_protocol.md`.** The server silently injects timeouts, partial responses, malformed responses, and delayed termination. The adapter must detect every one of these from the wire and must also be tested against them (Step 7).
+- **Protocol reference: [`docs/tms_protocol.md`](./docs/tms_protocol.md).** Read it before working on the TMS adapter.
+- **Fault handling: see the [Fault Behavior](./docs/tms_protocol.md#fault-behavior) and [Adapter Implementation Notes](./docs/tms_protocol.md#adapter-implementation-notes) sections of `docs/tms_protocol.md`.** The server silently injects timeouts, partial responses, malformed responses, and delayed termination. The adapter must detect every one of these from the wire and must also be tested against them (Step 7).
 
 - It has three operations: **load search**, **load detail retrieval**, and **load booking**.
 - The only documentation is the protocol spec provided with the challenge.
