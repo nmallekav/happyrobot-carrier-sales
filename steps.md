@@ -45,7 +45,7 @@
 
 ## Step 3: Connect Your Backend to HappyRobot
 
-- [ ] Deploy your Python backend.
+- [x] Deploy your Python backend.
 - [ ] Register your API endpoints as **tools** in HappyRobot.
 - [ ] Configure the agent to call the appropriate tools.
 - [ ] Add workflow conditions for **success** and **failure** scenarios.
@@ -113,8 +113,8 @@ The call should follow this order:
 
 ## Step 8: Deployment
 
-- [ ] Dockerize your backend.
-- [ ] Deploy to a cloud environment with **a single command**.
+- [x] Dockerize your backend.
+- [x] Deploy to a cloud environment with **a single command**.
 - [ ] Verify HappyRobot can reach your deployed APIs.
 - [ ] Run an **end-to-end test**.
 
