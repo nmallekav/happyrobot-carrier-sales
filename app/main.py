@@ -67,6 +67,8 @@ def verify_carrier(body: VerifyCarrierRequest):
         raise HTTPException(status_code=502, detail=f"FMCSA lookup failed (HTTP {e.response.status_code})")
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="FMCSA lookup failed (network error)")
+    except fmcsa.FMCSAUnavailable:
+        raise HTTPException(status_code=502, detail="FMCSA lookup returned no usable data")
 
     if result["eligible"]:
         # The HappyRobot workflow sends this code to the carrier via its SMS step.
