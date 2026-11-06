@@ -16,7 +16,7 @@ There is no human dispatcher on the call.
 
 - **Trigger:** a **web call trigger**. No phone number is provisioned.
 - **Voice agent:** one agent node that runs the whole conversation and uses the four backend tools below.
-- **SMS step:** sends the OTP code to the carrier's mobile number partway through the call, right after `verify_carrier` returns `eligible: true`.
+- **Email step:** sends the OTP code to the carrier's email address partway through the call, right after `verify_carrier` returns `eligible: true`. The code goes straight from the `verify_carrier` result to this step and is **never** visible to the agent.
 - **Outcome branches:** after the call, classify the outcome as one of:
   - `booked`
   - `booking_unconfirmed`
@@ -48,6 +48,7 @@ All four tools call the same deployed backend.
 - `{"detail": {"code": "...", "message": "..."}}`
 - for a 422 validation error: `{"detail": [{"msg": "...", ...}]}`
 - for a bad API key: `{"detail": "Invalid or missing API key"}`
+- for an FMCSA failure (`verify_carrier` 502): `{"detail": "FMCSA lookup failed (HTTP 503)"}`, `"FMCSA lookup failed (network error)"` or `"FMCSA lookup returned no usable data"`
 
 Branch on the **HTTP status** and the `code`.
 
@@ -60,20 +61,20 @@ Checks the carrier's operating authority with FMCSA. If they pass, it also creat
 - **Body:** `mc_number` (string, **digits only**, no `MC` prefix)
 
 ```json
-{"mc_number": "300000"}
+{"mc_number": "900000"}
 ```
 
 **Response for an eligible carrier (200):**
 ```json
 {
-  "mc_number": "300000",
+  "mc_number": "900000",
   "eligible": true,
   "reason": null,
-  "legal_name": "H & P TRANSPORT & LEASING INC",
+  "legal_name": "TEE TRUCKING LLC",
   "dba_name": null,
-  "dot_number": 627325,
+  "dot_number": 2573234,
   "allowed_to_operate": "Y",
-  "status_code": "I",
+  "status_code": "A",
   "otp_code": "123456",
   "otp_expires_in_seconds": 300
 }
@@ -88,24 +89,25 @@ The other `reason` values are `"Carrier is not authorized to operate"` and `"Car
 | Result | What it means | What the agent does |
 |---|---|---|
 | 200, `eligible: true` | Carrier verified, OTP created | Confirm `legal_name`, then send the OTP |
-| 200, `eligible: false` | Not authorized, or not found | End the call politely (`carrier_not_eligible`) |
+| 200, `eligible: false`, `reason: "MC number not found"` | FMCSA has no carrier with this MC | Read the number back and ask once more (it may have been misheard). If it's still not found, end the call politely (`carrier_not_eligible`) |
+| 200, `eligible: false`, any other `reason` | Not authorized to operate, or USDOT registration inactive | Politely explain we can't book them because their authority couldn't be verified, and end the call (`carrier_not_eligible`) |
 | 422 | The MC number wasn't digits only | Ask for the MC number again |
-| 502 | FMCSA lookup failed | Say we can't verify right now, and end the call (`fmcsa_error`) |
+| 502 | FMCSA is down or returned no usable data. This does **not** mean the MC is invalid | Say we can't verify carriers right now and ask them to call back in a few minutes. **Never** say their MC number doesn't exist. End the call (`fmcsa_error`) |
 
-> ⚠️ **`otp_code` must only be passed to the SMS step.** It must never go into the voice agent's prompt, context or memory, and must never be spoken. If the tool response is visible to the agent, map `otp_code` straight to the SMS step and hide it from the agent.
+> ⚠️ **`otp_code` must only be passed to the email step.** It must never go into the voice agent's prompt, context or memory, and must never be spoken. Map `otp_code` straight from the `verify_carrier` result to the email step, and return only `eligible`, `reason` and `legal_name` to the agent.
 
 ### Tool 2: `verify_otp`
 
 Checks the code the carrier reads back. A code is valid for 5 minutes, with 3 attempts.
 
-- **When:** after the SMS is sent and the carrier reads the code out.
+- **When:** after the email is sent and the carrier reads the code out.
 - **URL:** `POST https://api-production-00029.up.railway.app/verify_otp`
 - **Body:**
   - `mc_number` (digits only, the same as in `verify_carrier`)
   - `code` (exactly 6 digits)
 
 ```json
-{"mc_number": "300000", "code": "123456"}
+{"mc_number": "900000", "code": "123456"}
 ```
 
 **Correct code (200):**
@@ -135,7 +137,7 @@ Searches the load system for open loads. It returns up to 3 loads, all with full
 
 | Field | Format |
 |---|---|
-| `mc_number` | **Required.** Digits only, for example `"300000"` |
+| `mc_number` | **Required.** Digits only, for example `"900000"` |
 | `origin_city` | City name, for example `"Dallas"` |
 | `origin_state` | 2-letter code, for example `"TX"` |
 | `destination_city` | City name |
@@ -144,7 +146,7 @@ Searches the load system for open loads. It returns up to 3 loads, all with full
 | `pickup_date` | `YYYYMMDD`. Work out "tomorrow" or "Friday" from today's date |
 
 ```json
-{"mc_number": "300000", "origin_state": "TX", "equipment_type": "FLATBED"}
+{"mc_number": "900000", "origin_state": "TX", "equipment_type": "FLATBED"}
 ```
 
 **Response (200):**
@@ -192,7 +194,7 @@ Sends the carrier's offer. The server decides whether to counter, accept or reje
   - `carrier_offer` (a number)
 
 ```json
-{"mc_number": "300000", "load_id": "LD01075", "carrier_offer": 2300}
+{"mc_number": "900000", "load_id": "LD01075", "carrier_offer": 2300}
 ```
 
 **Counter offer (200):**
@@ -242,9 +244,9 @@ Use this as the voice agent's system prompt.
 > You are **Alex**, a carrier sales rep at **HappyRobot Logistics**, a freight brokerage in Chicago. You're taking inbound calls from truck carriers who want to haul a load. Carriers are often driving, so be **direct, brief and friendly**. Ask one question at a time, keep answers to a sentence or two, and pitch one load at a time. Say numbers naturally ("twenty-one hundred dollars", "El Paso, Texas").
 >
 > **Call flow:**
-> 1. **Greet and get the MC number.** "Thanks for calling HappyRobot Logistics, this is Alex. What's your MC number?" Convert it to digits only ("MC three zero zero zero zero zero" becomes `300000`). Read it back to confirm.
-> 2. **Verify the carrier.** Call `verify_carrier`. If eligible, confirm the company: "I have you as H and P Transport and Leasing, is that right?" If they say no, get the MC number again. If not eligible, politely explain that we can't book them because their authority couldn't be verified, and end the call.
-> 3. **Send the OTP.** Ask for their mobile number for a verification text. Once it's sent, say: "I just texted you a six-digit code. Can you read it back to me?"
+> 1. **Greet and get the MC number.** "Thanks for calling HappyRobot Logistics, this is Alex. What's your MC number?" Convert it to digits only ("MC nine zero zero zero zero zero" becomes `900000`). Read it back to confirm.
+> 2. **Verify the carrier.** Call `verify_carrier`. If eligible, confirm the company: "I have you as Tee Trucking, is that right?" If they say no, get the MC number again. If the MC number isn't found, read it back and ask once more. If they're not eligible, politely explain that we can't book them because their authority couldn't be verified, and end the call. If verification is unavailable (502), say we can't verify right now and ask them to call back shortly; never tell them their MC number doesn't exist.
+> 3. **Send the OTP.** Ask for their email address for a verification code, and spell it back to confirm. Once it's sent, say: "I just emailed you a six-digit code. Can you read it back to me?"
 > 4. **Check the OTP.** Call `verify_otp` with the code they read. If it's wrong, say how many tries are left and ask again. If they're locked out or the code expired, say we couldn't confirm their identity and end the call.
 > 5. **Get the lane.** Ask where they're picking up, where they want to go, and their equipment type. Optionally ask when they can pick up.
 > 6. **Find loads.** Call `find_loads` with their MC number and only the search fields they gave.
