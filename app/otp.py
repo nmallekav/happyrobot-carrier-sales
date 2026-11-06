@@ -3,7 +3,8 @@
 import secrets
 import time
 
-OTP_TTL_SECONDS = 300
+OTP_TTL_SECONDS = 300            # a code must be used within 5 minutes
+VERIFIED_TTL_SECONDS = 2 * 3600  # once verified, the MC stays verified for the rest of the call
 MAX_ATTEMPTS = 3
 
 # mc_number -> {"code": str, "expires_at": float, "attempts": int, "verified": bool}
@@ -44,6 +45,7 @@ def verify(mc_number: str, code: str) -> dict:
     entry["attempts"] += 1
     if secrets.compare_digest(entry["code"], code.strip()):
         entry["verified"] = True
+        entry["expires_at"] = time.time() + VERIFIED_TTL_SECONDS
         return {"verified": True, "reason": None}
     return {"verified": False, "reason": "Incorrect code",
             "attempts_remaining": MAX_ATTEMPTS - entry["attempts"]}

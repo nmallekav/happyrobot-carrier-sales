@@ -64,11 +64,20 @@ def verify_mc(mc_number: str) -> dict:
         return {"mc_number": mc, "eligible": False, "reason": "MC number not found"}
 
     carrier = content[0].get("carrier", {})
+    # Both must hold: FMCSA allows them to operate AND their USDOT registration is active.
+    # Real carriers have come back allowedToOperate=Y with statusCode=I (inactive).
     allowed = carrier.get("allowedToOperate") == "Y"
+    active = carrier.get("statusCode") == "A"
+    if not allowed:
+        reason = "Carrier is not authorized to operate"
+    elif not active:
+        reason = "Carrier's USDOT registration is not active"
+    else:
+        reason = None
     return {
         "mc_number": mc,
-        "eligible": allowed,
-        "reason": None if allowed else "Carrier is not authorized to operate",
+        "eligible": allowed and active,
+        "reason": reason,
         "legal_name": carrier.get("legalName"),
         "dba_name": carrier.get("dbaName"),
         "dot_number": carrier.get("dotNumber"),

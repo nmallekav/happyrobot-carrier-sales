@@ -111,8 +111,8 @@ There are **exactly four endpoints**, one per HappyRobot tool. Keep the tool cou
 |--------|------|------|---------|
 | POST | `/verify_carrier` | `{mc_number}` | FMCSA check. If eligible, also generates an OTP and returns `otp_code` for the HappyRobot SMS step |
 | POST | `/verify_otp` | `{mc_number, code}` | Checks the code (5 min expiry, 3 attempts) |
-| POST | `/find_loads` | `{origin_city, origin_state, destination_city, destination_state, equipment_type, pickup_date}` (all optional, at least one required) | TMS search plus full details for the top 3 matches. Never includes `max_rate` |
-| POST | `/negotiate` | `{mc_number, load_id, carrier_offer}` | Up to 3 counters, enforced on the server. On accept it **books the load in the TMS** and returns `status: "booked"` |
+| POST | `/find_loads` | `{mc_number, origin_city, origin_state, destination_city, destination_state, equipment_type, pickup_date}` (`mc_number` required; search fields optional, at least one required) | Requires a verified OTP (403 otherwise). TMS search plus full details for the top 3 matches. Never includes `max_rate` |
+| POST | `/negotiate` | `{mc_number, load_id, carrier_offer}` | Requires a verified OTP (403 otherwise). Up to 3 counters, enforced on the server. On accept it **books the load in the TMS** and returns `status: "booked"` |
 
 Run it locally:
 ```bash

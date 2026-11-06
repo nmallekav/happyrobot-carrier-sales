@@ -89,7 +89,18 @@ def verify_otp(body: VerifyOtpRequest):
 
 # ---------- 3. Find loads (search + details) ----------
 
+def require_otp(mc_number: str) -> None:
+    """Hard requirement: no load matching or negotiation until this MC has passed OTP."""
+    if not otp.is_verified(mc_number):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "OTP_NOT_VERIFIED",
+                    "message": "This MC number has not completed OTP verification"},
+        )
+
+
 class FindLoadsRequest(BaseModel):
+    mc_number: MCNumber
     origin_city: str | None = None
     origin_state: str | None = None
     destination_city: str | None = None
@@ -100,6 +111,7 @@ class FindLoadsRequest(BaseModel):
 
 @app.post("/find_loads", dependencies=auth)
 def find_loads(body: FindLoadsRequest):
+    require_otp(body.mc_number)
     matches = tms_call(
         tms.search_loads,
         orig_city=body.origin_city,
@@ -144,6 +156,7 @@ class NegotiateRequest(BaseModel):
 
 @app.post("/negotiate", dependencies=auth)
 def negotiate(body: NegotiateRequest):
+    require_otp(body.mc_number)
     load = tms_call(tms.get_load, body.load_id)
     result = negotiation.negotiate(body.mc_number, load, body.carrier_offer)
 

@@ -1,22 +1,24 @@
 # Edge Cases
 
 All endpoints need the API key (401 otherwise). Bad input → 422 from pydantic.
-OTP is hidden from the agent
+OTP code is hidden from the agent (confirmed in HappyRobot: it only goes to the email step).
+find_loads and negotiate need a verified MC, otherwise 403 `OTP_NOT_VERIFIED`.
 
 ## Verify Carrier
 1. MC number must be digits only (`MC-123`, `12a4`, `""` → 422)
 2. FMCSA cases
-    1. Allowed to operate → eligible, send OTP
-    2. Not allowed / MC not found → not eligible, end call
+    1. Allowed to operate AND USDOT status active (`A`) → eligible, send OTP
+    2. Not allowed / USDOT inactive (`I`) / MC not found → not eligible, end call
     3. FMCSA error or timeout → 502, end call
-- Open: inactive carriers (`status_code: I`) pass, non-JSON FMCSA reply (500), broker-only MCs pass, mock mode left on in prod
+- Open: non-JSON FMCSA reply (500), broker-only MCs pass, mock mode left on in prod
 
 ## Verify OTP
 1. Code must be exactly 6 digits (422, doesn't use an attempt)
 2. Wrong code → attempts remaining; 3 wrong → locked out
 3. Expired after 5 min / no code sent → fail
 4. OTP codes are never written to the logs
-- Open: calling verify_carrier again resets attempts; agent can see the OTP code
+5. Once verified, the MC stays verified for 2 hours (the rest of the call)
+- Open: calling verify_carrier again resets attempts
 
 ## Find Loads
 1. Only OPEN loads are returned (LOAD_QUERY also returns booked ones)
@@ -32,20 +34,22 @@ OTP is hidden from the agent
    Otherwise → `MALFORMED_RESPONSE`, retried like a timeout
     - Example seen on the wire: `C|XXOMMODITY:Produce` (stray `|` splits COMMODITY)
     - Tested live: 51 replies, 50 valid, 1 injected fault caught and retried, 0 valid replies rejected
-- Open: no OTP check, no filters → 502
+7. Needs `mc_number`; MC must have passed OTP (403 `OTP_NOT_VERIFIED`)
+- Open: no filters → 502
 
 ## Negotiate
 Problem: the TMS can't tell us which MC booked a load, so 2 carriers booking the same load is out of scope.
 
-1. Offer must be greater than 0 (0 or less → 422)
-2. Max 3 counters, never above `max_rate`, no deal → rejected (no transfer)
-3. Cases once a rate is agreed (LOAD_BOOK is sent once, never retried)
+1. MC must have passed OTP (403 `OTP_NOT_VERIFIED`)
+2. Offer must be greater than 0 (0 or less → 422)
+3. Max 3 counters, never above `max_rate`, no deal → rejected (no transfer)
+4. Cases once a rate is agreed (LOAD_BOOK is sent once, never retried)
     1. Booking succeeds → booked
     2. Booking returns an error → return the error, delete the negotiation
     3. Timeout / partial / malformed → check LOAD_GET
         1. PENDING or BOOKED → booked (no booking ref)
         2. OPEN or LOAD_GET fails → 500, delete the negotiation
-- Open: no OTP check, counters reveal `max_rate`
+- Open: counters reveal `max_rate`
 
 | Booking result | Response |
 |---|---|
@@ -65,7 +69,7 @@ flowchart TD
     AskMC --> VC[verify_carrier]
     VC -->|422 not digits| AskMC
     VC -->|502 FMCSA down| End1([End call])
-    VC -->|not eligible| End1
+    VC -->|not eligible / inactive| End1
     VC -->|eligible| SendOTP[Send OTP by SMS]
 
     SendOTP --> VO[verify_otp]
@@ -74,6 +78,7 @@ flowchart TD
     VO -->|verified| AskLane[Ask lane and equipment]
 
     AskLane --> FL[find_loads]
+    FL -->|403 OTP not verified| End2
     FL -->|502 TMS down| End3([End call])
     FL -->|no loads| AskLane
     FL -->|loads found| Pitch[Pitch a load]
