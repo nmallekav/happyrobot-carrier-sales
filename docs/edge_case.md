@@ -46,13 +46,15 @@ Problem: the TMS can't tell us which MC booked a load, so 2 carriers booking the
 1. MC must have passed OTP (403 `OTP_NOT_VERIFIED`)
 2. Offer must be greater than 0 (0 or less → 422)
 3. Max 3 counters, never above `max_rate`, no deal → rejected (no transfer)
+    - Each counter rises by a random 2-5% of the loadboard rate (never based on `max_rate`)
+    - Counters stop at a hidden cap, random per negotiation (85-99% of the way to `max_rate`), so the carrier can't tell where the ceiling is either
+    - So the max can't be calculated from the counters, and a huge ask can't push us to a fixed point near it
 4. Cases once a rate is agreed (LOAD_BOOK is sent once, never retried)
     1. Booking succeeds → booked
     2. Booking returns an error → return the error, delete the negotiation
     3. Timeout / partial / malformed → check LOAD_GET
         1. PENDING or BOOKED → booked (no booking ref)
         2. OPEN or LOAD_GET fails → 500, delete the negotiation
-- Open: counters reveal `max_rate`
 
 | Booking result | Response |
 |---|---|

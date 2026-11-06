@@ -79,6 +79,25 @@ def test_inactive_carrier_is_rejected(client, monkeypatch):
     assert "otp_code" not in carrier
 
 
+def test_counters_never_reach_or_reveal_max_rate():
+    # A carrier asking a huge amount, over many negotiations on the same load.
+    load = {"load_id": "LD1", "loadboard_rate": 2037, "max_rate": 2275}
+    first_counters = set()
+    for _ in range(200):
+        negotiation._sessions.clear()
+        counters = []
+        for ask in (10000, 9000, 8000, 8000):
+            r = negotiation.negotiate("1", load, ask)
+            if r["status"] != "open":
+                break
+            counters.append(r["counter_offer"])
+        assert r["status"] == "rejected"           # no deal after 3 counters
+        assert all(c < 2275 for c in counters)     # never at or above max_rate
+        first_counters.add(counters[0])
+    # Random steps: the first counter varies, so it can't be used to calculate max_rate.
+    assert len(first_counters) > 1
+
+
 def test_find_loads_and_negotiate_require_otp(client):
     # This MC never passed OTP, so neither load search nor negotiation is allowed.
     r = client.post("/find_loads", json={"mc_number": "999999", "origin_state": "TX"}, headers=HEADERS)

@@ -1,15 +1,24 @@
 """Server-side rate negotiation. max_rate never leaves this module.
 
-The broker pays the carrier, so the carrier pushes the price up and we hold
-the line at max_rate. We start at the loadboard rate and move part of the way
-toward max_rate on each counter, never quoting max_rate itself.
+The broker pays the carrier, so the carrier pushes the price up and we hold the
+line below max_rate. We start at the loadboard rate. Each counter goes up by a
+random step based on the loadboard rate (never on max_rate), so the counters
+carry no information about the ceiling. Counters also stop at a hidden cap that
+is set randomly per negotiation somewhere below max_rate, so even a carrier who
+asks for a huge amount can't push us to a fixed point that reveals the max.
 """
 
-MAX_ROUNDS = 3
-# How far from loadboard_rate toward max_rate our counter goes on each round.
-COUNTER_STEPS = {1: 0.4, 2: 0.7, 3: 0.9}
+import math
+import secrets
 
-# In-memory state for now: (mc_number, load_id) -> {"round": int, "our_offer": float, "status": str}
+MAX_ROUNDS = 3
+STEP_RANGE = (0.02, 0.05)  # each counter rises by 2-5% of the loadboard rate (random)
+CAP_RANGE = (0.85, 0.99)   # hidden cap: 85-99% of the way from loadboard to max_rate (random)
+
+_rng = secrets.SystemRandom()  # unpredictable, so the randomness can't be reproduced
+
+# In-memory state for now:
+# (mc_number, load_id) -> {"round", "our_offer", "cap", "status", "agreed_rate"}
 _sessions: dict[tuple[str, str], dict] = {}
 
 
@@ -22,11 +31,24 @@ def clear_session(mc_number: str, load_id: str) -> None:
     _sessions.pop((mc_number, load_id), None)
 
 
+def _new_session(loadboard: float, max_rate: float) -> dict:
+    gap = max(0.0, max_rate - loadboard)
+    cap = loadboard + gap * _rng.uniform(*CAP_RANGE)
+    return {"round": 0, "our_offer": loadboard, "cap": cap, "status": "open"}
+
+
+def _next_counter(session: dict, loadboard: float) -> float:
+    step = loadboard * _rng.uniform(*STEP_RANGE)
+    counter = min(session["our_offer"] + step, session["cap"])
+    counter = math.floor(counter / 5) * 5          # round down to a natural $5 figure
+    return max(counter, session["our_offer"])      # never go backwards
+
+
 def negotiate(mc_number: str, load: dict, carrier_offer: float) -> dict:
     key = (mc_number, load["load_id"])
     loadboard = float(load["loadboard_rate"])
-    ceiling = float(load["max_rate"])
-    session = _sessions.setdefault(key, {"round": 0, "our_offer": loadboard, "status": "open"})
+    max_rate = float(load["max_rate"])
+    session = _sessions.setdefault(key, _new_session(loadboard, max_rate))
 
     if session["status"] != "open":
         return _result(session, "Negotiation for this load is already closed.")
@@ -42,9 +64,10 @@ def negotiate(mc_number: str, load: dict, carrier_offer: float) -> dict:
         return _result(session, "Maximum counter rounds reached. No deal.")
 
     session["round"] += 1
-    counter = round(loadboard + (ceiling - loadboard) * COUNTER_STEPS[session["round"]])
+    counter = _next_counter(session, loadboard)
 
     # Carrier's ask is within our new counter: accept their number.
+    # counter <= cap < max_rate, so an accepted rate never exceeds max_rate.
     if carrier_offer <= counter:
         session["status"] = "accepted"
         session["agreed_rate"] = carrier_offer
@@ -55,6 +78,7 @@ def negotiate(mc_number: str, load: dict, carrier_offer: float) -> dict:
 
 
 def _result(session: dict, message: str) -> dict:
+    # Never include "cap" or anything derived from max_rate.
     return {
         "status": session["status"],  # open | accepted | rejected
         "round": session["round"],
