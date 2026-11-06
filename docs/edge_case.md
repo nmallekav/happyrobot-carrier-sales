@@ -10,7 +10,10 @@ find_loads and negotiate need a verified MC, otherwise 403 `OTP_NOT_VERIFIED`.
     1. Allowed to operate AND USDOT status active (`A`) → eligible, send OTP
     2. Not allowed / USDOT inactive (`I`) / MC not found → not eligible, end call
     3. FMCSA error or timeout → 502, end call
-- Open: non-JSON FMCSA reply (500), broker-only MCs pass, mock mode left on in prod
+    4. Only FMCSA's real not-found reply (`{"content": [], "retrievalDate": ...}`) means "MC number not found".
+       Any other reply without carrier data (null/missing content, non-JSON) → 502 "no usable data", shape logged
+        - Seen on 2026-11-06: FMCSA briefly sent Railway empty replies for every MC; it recovered after a redeploy
+- Open: broker-only MCs pass, mock mode left on in prod
 
 ## Verify OTP
 1. Code must be exactly 6 digits (422, doesn't use an attempt)
