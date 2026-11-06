@@ -32,7 +32,6 @@ def create(mc_number: str) -> str:
 
 def verify(mc_number: str, code: str) -> dict:
     _purge_expired(keep=mc_number)
-    print("otp", _otps)
     entry = _otps.get(mc_number)
     if not entry:
         return {"verified": False, "reason": "No code was sent for this MC number"}

@@ -145,7 +145,6 @@ class NegotiateRequest(BaseModel):
 @app.post("/negotiate", dependencies=auth)
 def negotiate(body: NegotiateRequest):
     load = tms_call(tms.get_load, body.load_id)
-    print("this is load", load)
     result = negotiation.negotiate(body.mc_number, load, body.carrier_offer)
 
     if result["status"] == "accepted":

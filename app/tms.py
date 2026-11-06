@@ -1,7 +1,7 @@
 """Client for the legacy TMS (TCP, line protocol). See docs/tms_protocol.md.
 
-Kept intentionally simple for now: one connection per request, read until
-END/ERR, a short timeout, and a few retries for read-only commands.
+One connection per request, read until END/ERR, a short timeout, field
+validation of every record, and a few retries for read-only commands.
 """
 
 import os
@@ -35,7 +35,6 @@ def _clean(value) -> str:
 
 def _send(cmd: str, fields: dict) -> list[dict]:
     """Send one request and return the parsed record lines."""
-    print("this is cmd", cmd)
     parts = [f"CMD:{cmd}", f"AUTH:{os.environ['TMS_AUTH_TOKEN']}"]
     parts += [f"{k}:{_clean(v)}" for k, v in fields.items() if v not in (None, "")]
     request = "|".join(parts) + "\r\n"
@@ -47,7 +46,6 @@ def _send(cmd: str, fields: dict) -> list[dict]:
         buf = b""
         while True:
             chunk = sock.recv(4096)
-            print("this is chunk", chunk)
             if not chunk:
                 break
             buf += chunk
@@ -60,7 +58,6 @@ def _send(cmd: str, fields: dict) -> list[dict]:
         err = _parse_line(text.strip().removeprefix("ERR|"))
         raise TMSError(err.get("CODE", "UNKNOWN"), err.get("MSG", ""))
     if not text.endswith("END\r\n"):
-        print("arreyykya")
         raise TMSError("INCOMPLETE_RESPONSE", "Response ended without END terminator")
 
     lines = text.split("\r\n")[:-2]  # drop "END" and the trailing ""
@@ -75,14 +72,64 @@ def _parse_line(line: str) -> dict:
     return record
 
 
-def _with_retries(cmd: str, fields: dict) -> list[dict]:
-    """Retry read-only commands on timeouts / incomplete responses."""
+# ---------- Response validation (malformed replies can still end in END) ----------
+
+# Exact field sets, from docs/tms_protocol.md and observed on the wire.
+SUMMARY_FIELDS = {
+    "LOAD_ID", "ORIG_CITY", "ORIG_STATE", "ORIG_ZIP", "DEST_CITY", "DEST_STATE",
+    "DEST_ZIP", "PICKUP_DT", "EQTYPE", "RATE", "MILES", "STATUS",
+}  # LOAD_QUERY
+DETAIL_FIELDS = SUMMARY_FIELDS | {
+    "DELIVERY_DT", "WEIGHT", "COMMODITY", "PIECES", "DIMS", "NOTES", "MAX_BUY",
+}  # LOAD_GET
+NUMERIC_FIELDS = {"RATE", "MILES", "WEIGHT", "PIECES", "MAX_BUY"}
+DATETIME_FIELDS = {"PICKUP_DT", "DELIVERY_DT"}
+EQUIPMENT_TYPES = {"DRY_VAN", "REEFER", "FLATBED", "STEP_DECK", "POWER_ONLY"}
+
+
+def _malformed(reason: str) -> TMSError:
+    # Reason names fields only, never values (MAX_BUY must not end up in errors or logs).
+    return TMSError("MALFORMED_RESPONSE", reason)
+
+
+def _validate(records: list[dict], expected: set[str]) -> None:
+    """Raise MALFORMED_RESPONSE unless every record has exactly the expected
+    fields with sensible values. A stray "|" (e.g. "C|XXOMMODITY:") or an empty
+    or extra field changes the field set, so it is caught here."""
+    for r in records:
+        if set(r) != expected:
+            unexpected = sorted(set(r) - expected)
+            missing = sorted(expected - set(r))
+            raise _malformed(f"unexpected fields {unexpected}, missing {missing}")
+        if not r["LOAD_ID"] or not r["STATUS"]:
+            raise _malformed("empty LOAD_ID or STATUS")
+        if r["EQTYPE"] not in EQUIPMENT_TYPES:
+            raise _malformed("unknown EQTYPE")
+        for f in NUMERIC_FIELDS & expected:
+            try:
+                float(r[f])
+            except ValueError:
+                raise _malformed(f"{f} is not a number")
+        for f in DATETIME_FIELDS & expected:
+            # strptime alone accepts too few digits ("2026111216"), so check the length too.
+            try:
+                if len(r[f]) != 14 or not r[f].isdigit():
+                    raise ValueError
+                datetime.strptime(r[f], "%Y%m%d%H%M%S")
+            except ValueError:
+                raise _malformed(f"{f} is not a valid datetime")
+
+
+def _with_retries(cmd: str, fields: dict, expected: set[str]) -> list[dict]:
+    """Retry read-only commands on timeouts, incomplete or malformed responses."""
     last_error: Exception | None = None
     for _ in range(READ_RETRIES):
         try:
-            return _send(cmd, fields)
+            records = _send(cmd, fields)
+            _validate(records, expected)
+            return records
         except TMSError as e:
-            if e.code != "INCOMPLETE_RESPONSE":
+            if e.code not in ("INCOMPLETE_RESPONSE", "MALFORMED_RESPONSE"):
                 raise  # a real error from the TMS (e.g. NOT_FOUND) - don't retry
             last_error = e
         except (socket.timeout, OSError) as e:
@@ -143,12 +190,12 @@ def search_loads(orig_city=None, orig_state=None, dest_city=None, dest_state=Non
         "DEST_STATE": dest_state,
         "EQTYPE": equipment_type,
         "PICKUP_DATE": pickup_date,  # YYYYMMDD
-    })
+    }, SUMMARY_FIELDS)
     return [to_load(r) for r in records]
 
 
 def get_load(load_id: str) -> dict:
-    records = _with_retries("LOAD_GET", {"LOAD_ID": load_id})
+    records = _with_retries("LOAD_GET", {"LOAD_ID": load_id}, DETAIL_FIELDS)
     if not records:
         raise TMSError("NOT_FOUND", "Load not found")
     return to_load(records[0])

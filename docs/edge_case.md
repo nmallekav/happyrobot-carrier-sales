@@ -1,6 +1,7 @@
 # Edge Cases
 
 All endpoints need the API key (401 otherwise). Bad input → 422 from pydantic.
+OTP is hidden from the agent
 
 ## Verify Carrier
 1. MC number must be digits only (`MC-123`, `12a4`, `""` → 422)
@@ -8,24 +9,30 @@ All endpoints need the API key (401 otherwise). Bad input → 422 from pydantic.
     1. Allowed to operate → eligible, send OTP
     2. Not allowed / MC not found → not eligible, end call
     3. FMCSA error or timeout → 502, end call
-- Open: non-JSON FMCSA reply (500), broker-only MCs pass, mock mode left on in prod
+- Open: inactive carriers (`status_code: I`) pass, non-JSON FMCSA reply (500), broker-only MCs pass, mock mode left on in prod
 
 ## Verify OTP
 1. Code must be exactly 6 digits (422, doesn't use an attempt)
 2. Wrong code → attempts remaining; 3 wrong → locked out
 3. Expired after 5 min / no code sent → fail
+4. OTP codes are never written to the logs
 - Open: calling verify_carrier again resets attempts; agent can see the OTP code
 
 ## Find Loads
 1. Only OPEN loads are returned (LOAD_QUERY also returns booked ones)
 2. Top 3 with full details, `max_rate` stripped
-3. LOAD_QUERY fails → retry 3x on timeout/partial, then 502
+3. LOAD_QUERY fails → retry 3x on timeout/partial/malformed, then 502
     - If timeout -> Say system is down and end the call
     - If empty results, say nothing is available
 4. LOAD_GET fails for a load → don't return it, try the next match instead (max 5 lookups)
     - If LOAD_GET fails for all loads → 502 `LOAD_DETAILS_UNAVAILABLE`, we say our system is down and end the call
 5. 200 with no loads only ever means nothing matches; a TMS problem is always a 502
-- Open: no OTP check, malformed reply ending in END is accepted, no filters → 502
+6. Malformed replies are caught even when they end in END: every record must have exactly the expected fields
+   (12 for LOAD_QUERY, 19 for LOAD_GET), numeric rates/miles/weight/pieces, 14-digit datetimes and a known EQTYPE.
+   Otherwise → `MALFORMED_RESPONSE`, retried like a timeout
+    - Example seen on the wire: `C|XXOMMODITY:Produce` (stray `|` splits COMMODITY)
+    - Tested live: 51 replies, 50 valid, 1 injected fault caught and retried, 0 valid replies rejected
+- Open: no OTP check, no filters → 502
 
 ## Negotiate
 Problem: the TMS can't tell us which MC booked a load, so 2 carriers booking the same load is out of scope.
