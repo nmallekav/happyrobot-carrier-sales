@@ -18,10 +18,10 @@
 
 ## Step 1: Set Up HappyRobot
 
-- [ ] Create a new workflow in HappyRobot.
-- [ ] Configure a **web call trigger**.
-- [ ] Create an **AI voice agent**.
-- [ ] Define the agent's instructions and conversation flow.
+- [x] Create a new workflow in HappyRobot.
+- [x] Configure a **web call trigger**.
+- [x] Create an **AI voice agent**.
+- [x] Define the agent's instructions and conversation flow.
 
 ---
 
@@ -46,9 +46,9 @@
 ## Step 3: Connect Your Backend to HappyRobot
 
 - [x] Deploy your Python backend.
-- [ ] Register your API endpoints as **tools** in HappyRobot.
-- [ ] Configure the agent to call the appropriate tools.
-- [ ] Add workflow conditions for **success** and **failure** scenarios.
+- [x] Register your API endpoints as **tools** in HappyRobot.
+- [x] Configure the agent to call the appropriate tools.
+- [x] Add workflow conditions for **success** and **failure** scenarios.
 
 ---
 

@@ -127,7 +127,7 @@ Checks the code the carrier reads back. A code is valid for 5 minutes, with 3 at
 
 ### Tool 3: `find_loads`
 
-Searches the load system for open loads. It returns the top 3, with full details.
+Searches the load system for open loads. It returns up to 3 loads, all with full details. A `200` with an empty `loads` list only ever means nothing matches; a load system problem is always a `502`.
 
 - **When:** after the OTP is verified and the carrier has described their lane.
 - **URL:** `POST https://api-production-00029.up.railway.app/find_loads`
@@ -176,7 +176,7 @@ Searches the load system for open loads. It returns the top 3, with full details
 | 200, `loads` has 1-3 items | Pitch the first load |
 | 200, `total_matches: 0` | Say nothing matches, and offer to search a different lane or equipment type. If they decline, end the call (`no_loads`) |
 | 502, `code: "MISSING_FIELD"` | No filters were sent. Ask for at least an origin or equipment type, then retry |
-| 502, any other code | The load system is down. Apologise, say a rep will follow up, and end the call (`tms_error`) |
+| 502, `code: "LOAD_DETAILS_UNAVAILABLE"` or any other code | The load system is down. Apologise, say a rep will follow up, and end the call (`tms_error`) |
 
 ### Tool 4: `negotiate`
 
@@ -225,6 +225,7 @@ Sends the carrier's offer. The server decides whether to counter, accept or reje
 | 200, `status: "rejected"` | Thank them, say we couldn't make it work this time, and end the call. **Do not transfer** (`negotiation_failed`) |
 | 200, `message: "Negotiation for this load is already closed."` | Don't negotiate this load again. Offer another load |
 | 404 (`NOT_FOUND` / `UNKNOWN_LOAD`) or 409 (`ALREADY_BOOKED`) | That load was just taken. Offer the next load from `find_loads` |
+| 422 with `{"detail": [...]}` (offer was 0 or less) | Ask the carrier for their rate again, then retry |
 | 422 (`INVALID_RATE`) | The booking was rejected. Say a rep will follow up, and end the call (`booking_unconfirmed`) |
 | 500 (`BOOKING_UNCONFIRMED`) | The rate was agreed but the booking couldn't be confirmed. Say a rep will follow up, and end the call (`booking_unconfirmed`) |
 | 502 | The load system failed. Apologise, say a rep will follow up, and end the call (`tms_error`) |

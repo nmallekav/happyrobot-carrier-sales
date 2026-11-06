@@ -15,13 +15,14 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from typing import Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 load_dotenv()
 
 from app import fmcsa, negotiation, otp, tms  # noqa: E402  (needs env loaded first)
 
 MAX_LOADS_RETURNED = 3
+MAX_DETAIL_LOOKUPS = 5  # cap LOAD_GET calls per search so the caller isn't left waiting
 
 app = FastAPI(title="HappyRobot Carrier Sales API", version="0.2.0")
 
@@ -111,13 +112,25 @@ def find_loads(body: FindLoadsRequest):
     # LOAD_QUERY also returns loads we've already booked (STATUS:PENDING); only pitch open ones.
     matches = [m for m in matches if (m.get("status") or "").upper() == "OPEN"]
 
-    # Search results are summaries; fetch full details for the top few.
+    # Search results are summaries without weight, notes, etc. Only pitch loads with full
+    # details: if a lookup fails, skip that load and try the next match.
     loads = []
-    for summary in matches[:MAX_LOADS_RETURNED]:
+    for summary in matches[:MAX_DETAIL_LOOKUPS]:
+        if len(loads) == MAX_LOADS_RETURNED:
+            break
         try:
             loads.append(public_load(tms.get_load(summary["load_id"])))
         except (tms.TMSError, OSError):
-            loads.append(public_load(summary))  # fall back to the summary
+            continue
+
+    # 200 with no loads must only ever mean "nothing matches". If loads exist but we
+    # couldn't get details for any of them, that's a TMS problem, not "no loads".
+    if matches and not loads:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "LOAD_DETAILS_UNAVAILABLE",
+                    "message": "Matching loads exist but their details could not be retrieved"},
+        )
     return {"total_matches": len(matches), "loads": loads}
 
 
@@ -126,7 +139,7 @@ def find_loads(body: FindLoadsRequest):
 class NegotiateRequest(BaseModel):
     mc_number: MCNumber
     load_id: str
-    carrier_offer: float
+    carrier_offer: float = Field(gt=0)  # 0 or less -> 422
 
 
 @app.post("/negotiate", dependencies=auth)

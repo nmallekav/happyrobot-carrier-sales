@@ -20,20 +20,25 @@ All endpoints need the API key (401 otherwise). Bad input → 422 from pydantic.
 1. Only OPEN loads are returned (LOAD_QUERY also returns booked ones)
 2. Top 3 with full details, `max_rate` stripped
 3. LOAD_QUERY fails → retry 3x on timeout/partial, then 502
-4. LOAD_GET fails for a load → use its search summary instead
+    - If timeout -> Say system is down and end the call
+    - If empty results, say nothing is available
+4. LOAD_GET fails for a load → don't return it, try the next match instead (max 5 lookups)
+    - If LOAD_GET fails for all loads → 502 `LOAD_DETAILS_UNAVAILABLE`, we say our system is down and end the call
+5. 200 with no loads only ever means nothing matches; a TMS problem is always a 502
 - Open: no OTP check, malformed reply ending in END is accepted, no filters → 502
 
 ## Negotiate
 Problem: the TMS can't tell us which MC booked a load, so 2 carriers booking the same load is out of scope.
 
-1. Max 3 counters, never above `max_rate`, no deal → rejected (no transfer)
-2. Cases once a rate is agreed (LOAD_BOOK is sent once, never retried)
+1. Offer must be greater than 0 (0 or less → 422)
+2. Max 3 counters, never above `max_rate`, no deal → rejected (no transfer)
+3. Cases once a rate is agreed (LOAD_BOOK is sent once, never retried)
     1. Booking succeeds → booked
     2. Booking returns an error → return the error, delete the negotiation
     3. Timeout / partial / malformed → check LOAD_GET
         1. PENDING or BOOKED → booked (no booking ref)
         2. OPEN or LOAD_GET fails → 500, delete the negotiation
-- Open: no OTP check, offers of 0 or less accepted, counters reveal `max_rate`
+- Open: no OTP check, counters reveal `max_rate`
 
 | Booking result | Response |
 |---|---|
