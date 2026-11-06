@@ -26,10 +26,10 @@ find_loads and negotiate need a verified MC, otherwise 403 `OTP_NOT_VERIFIED`.
 ## Find Loads
 1. Only OPEN loads are returned (LOAD_QUERY also returns booked ones)
 2. Top 3 with full details, `max_rate` stripped
-3. LOAD_QUERY fails → retry 3x on timeout/partial/malformed, then 502
+3. LOAD_QUERY fails → retried 3 times on timeout/partial/malformed/SERVER_ERROR (waits 1s, 1s, 2s), then 502
     - If timeout -> Say system is down and end the call
     - If empty results, say nothing is available
-4. LOAD_GET fails for a load → don't return it, try the next match instead (max 5 lookups)
+4. LOAD_GET is not retried (one attempt). If it fails → don't return that load, try the next match instead (max 5 lookups)
     - If LOAD_GET fails for all loads → 502 `LOAD_DETAILS_UNAVAILABLE`, we say our system is down and end the call
 5. 200 with no loads only ever means nothing matches; a TMS problem is always a 502
 6. Malformed replies are caught even when they end in END: every record must have exactly the expected fields

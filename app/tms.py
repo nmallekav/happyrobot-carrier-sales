@@ -1,15 +1,20 @@
 """Client for the legacy TMS (TCP, line protocol). See docs/tms_protocol.md.
 
 One connection per request, read until END/ERR, a short timeout, field
-validation of every record, and a few retries for read-only commands.
+validation of every record, and retries for LOAD_QUERY only.
 """
 
 import os
 import socket
+import time
 from datetime import datetime
 
 TIMEOUT_SECONDS = 5
-READ_RETRIES = 3
+# LOAD_QUERY is retried 3 times (4 attempts), waiting this long before each retry.
+# LOAD_GET is not retried: one attempt only.
+QUERY_RETRY_WAITS = (1, 1, 2)
+# Failures worth retrying. Anything else (e.g. NOT_FOUND) is a real answer.
+RETRYABLE_CODES = {"INCOMPLETE_RESPONSE", "MALFORMED_RESPONSE", "SERVER_ERROR"}
 
 
 class TMSError(Exception):
@@ -120,17 +125,21 @@ def _validate(records: list[dict], expected: set[str]) -> None:
                 raise _malformed(f"{f} is not a valid datetime")
 
 
-def _with_retries(cmd: str, fields: dict, expected: set[str]) -> list[dict]:
-    """Retry read-only commands on timeouts, incomplete or malformed responses."""
+def _with_retries(cmd: str, fields: dict, expected: set[str], waits: tuple = ()) -> list[dict]:
+    """Send a read-only command and validate the reply. On a timeout, incomplete or
+    malformed reply or SERVER_ERROR, retry once per entry in `waits`, sleeping that
+    many seconds first. With no waits there is a single attempt."""
     last_error: Exception | None = None
-    for _ in range(READ_RETRIES):
+    for wait in (None, *waits):
+        if wait:
+            time.sleep(wait)
         try:
             records = _send(cmd, fields)
             _validate(records, expected)
             return records
         except TMSError as e:
-            if e.code not in ("INCOMPLETE_RESPONSE", "MALFORMED_RESPONSE"):
-                raise  # a real error from the TMS (e.g. NOT_FOUND) - don't retry
+            if e.code not in RETRYABLE_CODES:
+                raise  # a real answer from the TMS (e.g. NOT_FOUND) - don't retry
             last_error = e
         except (socket.timeout, OSError) as e:
             last_error = TMSError("TIMEOUT", str(e) or "TMS timed out")
@@ -190,12 +199,12 @@ def search_loads(orig_city=None, orig_state=None, dest_city=None, dest_state=Non
         "DEST_STATE": dest_state,
         "EQTYPE": equipment_type,
         "PICKUP_DATE": pickup_date,  # YYYYMMDD
-    }, SUMMARY_FIELDS)
+    }, SUMMARY_FIELDS, waits=QUERY_RETRY_WAITS)
     return [to_load(r) for r in records]
 
 
 def get_load(load_id: str) -> dict:
-    records = _with_retries("LOAD_GET", {"LOAD_ID": load_id}, DETAIL_FIELDS)
+    records = _with_retries("LOAD_GET", {"LOAD_ID": load_id}, DETAIL_FIELDS)  # no retries
     if not records:
         raise TMSError("NOT_FOUND", "Load not found")
     return to_load(records[0])
