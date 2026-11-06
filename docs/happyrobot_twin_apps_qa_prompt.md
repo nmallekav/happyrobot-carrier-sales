@@ -123,25 +123,16 @@ Add a date-range filter (today / 7 days / 30 days / custom) and a toggle to **ex
 >
 > The share of verified carriers who got a compliant tentative booking with no dispatcher involved.
 
-**KPI tiles:**
+**KPI tiles (four):**
 
-| KPI | Calculation |
-|---|---|
-| Total calls | count of `calls` |
-| Booked | count of `outcome = booked` |
-| Verification failures | count of `outcome` in (`carrier_not_eligible`, `otp_failed`) |
-| Unsuccessful calls | count of `outcome` in (`negotiation_failed`, `no_loads`, `fmcsa_error`, `tms_error`, `booking_unconfirmed`, `caller_hung_up`) |
-| Premium over listed rate | average of (`agreed_rate` − `loadboard_rate`) ÷ `loadboard_rate` on booked calls (lower means more margin kept) |
-| Average counters to a deal | average `counter_rounds` on booked calls |
-| Time to booking | average (`booked_at` − `started_at`) in seconds |
-| Verification time | average (`verified_at` − `started_at`) in seconds |
-| Load match rate | verified calls with `loads_found > 0` ÷ verified calls |
-| System failure rate | calls with `outcome` in (`fmcsa_error`, `tms_error`, `booking_unconfirmed`) ÷ total calls |
-| Twin logging coverage | calls with a non-empty `outcome` ÷ total calls (target 100%) |
+| KPI | Calculation | Target |
+|---|---|---|
+| Total calls | count of `calls` | (tracked) |
+| Premium over listed rate | average of (`agreed_rate` − `loadboard_rate`) ÷ `loadboard_rate` on booked calls. Lower means more margin kept | **5% or less** |
+| Average call length | average `duration_seconds` | **under 4 minutes** |
+| Guardrail breaches | count of `guardrail_breach = true` | **0** |
 
-**Charts:**
-- calls per day, stacked by `outcome`
-- outcome breakdown (donut)
+**Chart:** outcome breakdown (donut), showing booked, negotiation failed, verification failed (`carrier_not_eligible` + `otp_failed`), no loads, and system error (`fmcsa_error` + `tms_error` + `booking_unconfirmed`). This also shows verification failures and unsuccessful calls.
 
 ### 2.2 Guardrail alerts
 
@@ -179,12 +170,10 @@ A table of `carriers`: MC number, name, last FMCSA result, total calls, total bo
 ### 3.1 North Star, supporting KPIs and guardrails
 
 - **North Star: Automated Booking Rate** (definition in 2.1). Target for the proof of concept: **at least 80%** of the scripted calls where a deal is possible.
-- **Supporting KPI targets:**
-  - premium over listed rate: average **5% or less**
-  - time to booking: **under 4 minutes**
-  - load match rate: tracked
-  - system failure rate: tracked
-  - Twin logging coverage: **100%**
+- **Supporting KPIs (definitions in 2.1):**
+  - premium over listed rate: average **5% or less** (margin kept)
+  - average call length: **under 4 minutes** (carrier experience)
+  - guardrail breaches: **0** (compliance)
 - **Guardrails (must be 0, otherwise QA fails):**
   - `max_rate` disclosed or hinted at
   - a booking above `max_rate`
